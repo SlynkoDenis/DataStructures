@@ -10,6 +10,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <random>
 #include <set>
 #include <stdexcept>
@@ -93,7 +94,7 @@ struct Graph {
         return gList[index];
     }
 
-    virtual ~Graph() {};
+    virtual ~Graph() = default;
 };
 
 template <typename N>
@@ -114,10 +115,46 @@ struct DirectedGraph final : public Graph<N> {
         inDegrees.reserve(cap);
     };
     void addNode(size_t number, N *begin, size_t sz) override;
+    template <typename INIt> void addNode(size_t number, INIt begin, INIt end);
     void remove_edge(size_t first, const N& last) override;
     void remove_edge(size_t first) override;
     ~DirectedGraph() override = default;
 };
+
+template <typename N>
+template <typename INIt> void DirectedGraph<N>::addNode(size_t number, INIt begin, INIt end) {
+    auto sz = std::distance(begin, end);
+
+    if (sz < 1)
+        throw std::invalid_argument("range");
+    if (sz == 1)
+        return;
+
+    if (number < this->number_of_verteces()) {
+        inDegrees[number] += sz;
+
+        auto& iter = this->gList[number];
+        for (auto& it = begin; it != end; it = std::next(it)) {
+            ++inDegrees[static_cast<size_t>(*it)];
+            iter.push_back(*it);
+        }
+
+        this->edges += sz;
+    } else if (number == this->number_of_verteces()) {
+        std::vector<N> tmp;
+        tmp.reserve(sz);
+
+        for (auto& it = begin; it != end; it = std::next(it)) {
+            ++inDegrees[static_cast<size_t>(*it)];
+            tmp.push_back(*it);
+        }
+
+        inDegrees.push_back(sz);
+        this->gList.push_back(std::move(tmp));
+        this->edges += sz;
+    } else
+        throw std::invalid_argument("vertex to add");
+}
 
 template <typename N>
 void DirectedGraph<N>::addNode(size_t number, N *begin, size_t sz) {
@@ -189,11 +226,44 @@ struct UndirectedGraph final : public Graph<N> {
         return *this;
     };
     void reserve(const size_t& cap) override { this->gList.reserve(cap); };
+    template <typename INIt> void addNode(size_t number, INIt begin, INIt end);
     void addNode(size_t number, N *begin, size_t sz) override;
     void remove_edge(size_t first, const N& last) override;
     void remove_edge(size_t first) override;
     ~UndirectedGraph() override = default;
 };
+
+template <typename N>
+template <typename INIt> void UndirectedGraph<N>::addNode(size_t number, INIt begin, INIt end) {
+    auto sz = std::distance(begin, end);
+
+    if (sz < 1)
+        throw std::invalid_argument("range");
+    if (sz == 1)
+        return;
+
+    if (number < this->number_of_verteces()) {
+        auto& iter = this->gList[number];
+        for (auto& it = begin; it != end; it = std::next(it)) {
+            iter.push_back(*it);
+            this->gList[static_cast<size_t>(*it)].push_back(static_cast<N>(number));
+        }
+
+        this->edges += sz;
+    } else if (number == this->number_of_verteces()) {
+        std::vector<N> tmp;
+        tmp.reserve(sz);
+
+        for (auto& it = begin; it != end; it = std::next(it)) {
+            tmp.push_back(*it);
+            this->gList[static_cast<size_t>(*it)].push_back(static_cast<N>(number));
+        }
+
+        this->gList.emplace_back(std::move(tmp));
+        this->edges += sz;
+    } else
+        throw std::invalid_argument("vertex to add");
+}
 
 template <typename N>
 void UndirectedGraph<N>::addNode(size_t number, N *begin, size_t sz) {
@@ -217,7 +287,7 @@ void UndirectedGraph<N>::addNode(size_t number, N *begin, size_t sz) {
             this->gList[static_cast<size_t>(*(begin + i))].push_back(static_cast<N>(number));
         }
 
-        this->gList.push_back(std::move(tmp));
+        this->gList.emplace_back(std::move(tmp));
         this->edges += sz;
     } else
         throw std::invalid_argument("vertex to add");
@@ -265,7 +335,7 @@ void UndirectedGraph<N>::remove_edge(size_t first) {
 namespace {
     size_t generate_optimal_number(const size_t &number_of_vertices, const size_t &number_of_edges) {
         size_t tmp = number_of_edges / number_of_vertices;
-        if (tmp < number_of_vertices)
+        if (tmp + 2 < number_of_vertices)
             return tmp + 2;
         else
             return number_of_vertices / 2;
@@ -283,7 +353,7 @@ std::ostream& operator <<(std::ostream& os, const Graph<N>& g) {
 }
 
 DirectedGraph<Node> generate_directed_graph(const size_t& number_of_vertices, const size_t& number_of_edges, const size_t& max_weight) {
-    if (number_of_edges > number_of_vertices * (number_of_vertices - 1))
+    if (static_cast<uint64_t>(number_of_edges) > static_cast<uint64_t>(number_of_vertices) * (number_of_vertices - 1))
         throw std::invalid_argument("cannot create graph with such number of edges");
 
     DirectedGraph<Node> result(number_of_vertices);
@@ -306,42 +376,47 @@ DirectedGraph<Node> generate_directed_graph(const size_t& number_of_vertices, co
 
     std::vector<bool> vertices(number_of_vertices, false);
 
+    std::vector<bool> tmp(number_of_vertices, false);
     while (already_generated != number_of_edges) {
         size_t current_index = vert_dis(gen1);
-        while (vertices[current_index])
+        while (vertices[current_index]) {
             current_index = vert_dis(gen1);
+        }
         vertices[current_index] = true;
 
         size_t current_edges = edge_dis(gen2);
-        while (already_generated + current_edges > number_of_edges) {
+        while (already_generated > number_of_edges - current_edges) {
             current_edges = edge_dis(gen2);
         }
         already_generated += current_edges;
 
-        std::set<size_t> tmp;
+        size_t tmp_counter = 0;
+        std::fill(tmp.begin(), tmp.end(),false);
+        tmp[current_index] = true;
+
         std::vector<Node> tmp_res;
         tmp_res.reserve(current_edges);
-        for (; tmp.size() < current_edges;) {
-            size_t tmp_sz = tmp.size();
-            size_t tmp_index = 0;
-            while (tmp.size() == tmp_sz) {
+        while (tmp_counter != current_edges) {
+            size_t tmp_index = current_index;
+            while (tmp[tmp_index]) {
                 tmp_index = vert_dis(gen1);
-                if (tmp_index != current_index)
-                    tmp.insert(tmp_index);
             }
+
+            ++tmp_counter;
+            tmp[tmp_index] = true;
 
             ++result.inDegrees[tmp_index];
             tmp_res.emplace_back(tmp_index, weight_dis(gen0));
         }
 
-        result.gList[current_index] = std::move(tmp_res);
+        result.gList[current_edges] = std::move(tmp_res);
     }
 
     return result;
 }
 
 DirectedGraph<size_t> generate_directed_graph(const size_t& number_of_vertices, const size_t& number_of_edges) {
-    if (number_of_edges > number_of_vertices * (number_of_vertices - 1))
+    if (static_cast<uint64_t>(number_of_edges) > static_cast<uint64_t>(number_of_vertices) * (number_of_vertices - 1))
         throw std::invalid_argument("cannot create graph with such number of edges");
 
     DirectedGraph<size_t> result(number_of_vertices);
@@ -359,6 +434,7 @@ DirectedGraph<size_t> generate_directed_graph(const size_t& number_of_vertices, 
 
     std::vector<bool> vertices(number_of_vertices, false);
 
+    std::vector<bool> tmp(number_of_vertices, false);
     while (already_generated != number_of_edges) {
         size_t current_index = vert_dis(gen1);
         size_t current_edges = edge_dis(gen2);
@@ -381,17 +457,20 @@ DirectedGraph<size_t> generate_directed_graph(const size_t& number_of_vertices, 
 
         vertices[current_index] = true;
 
-        std::set<size_t> tmp;
+        size_t tmp_counter = 0;
+        std::fill(tmp.begin(), tmp.end(), false);
+        tmp[current_index] = true;
+
         std::vector<size_t> tmp_res;
         tmp_res.reserve(current_edges);
-        for (; tmp.size() < current_edges;) {
-            size_t tmp_sz = tmp.size();
-            size_t tmp_index = 0;
-            while (tmp.size() == tmp_sz) {
+        while (tmp_counter != current_edges) {
+            size_t tmp_index = current_index;
+            while (tmp[tmp_index]) {
                 tmp_index = vert_dis(gen1);
-                if (tmp_index != current_index)
-                    tmp.insert(tmp_index);
             }
+
+            ++tmp_counter;
+            tmp[tmp_index] = true;
 
             ++result.inDegrees[tmp_index];
             tmp_res.emplace_back(tmp_index);
@@ -404,7 +483,7 @@ DirectedGraph<size_t> generate_directed_graph(const size_t& number_of_vertices, 
 }
 
 UndirectedGraph<size_t> generate_undirected_graph(const size_t& number_of_vertices, const size_t& number_of_edges) {
-    if (number_of_edges > number_of_vertices * (number_of_vertices - 1) / 2)
+    if (static_cast<uint64_t>(number_of_edges) > static_cast<uint64_t>(number_of_vertices) * (number_of_vertices - 1) / 2)
         throw std::invalid_argument("cannot create graph with such number of edges");
 
     UndirectedGraph<size_t> result(number_of_vertices);
@@ -422,6 +501,7 @@ UndirectedGraph<size_t> generate_undirected_graph(const size_t& number_of_vertic
 
     std::vector<bool> vertices(number_of_vertices, false);
 
+    std::vector<bool> tmp(number_of_vertices, false);
     while (already_generated != number_of_edges) {
         size_t current_index = vert_dis(gen1);
         size_t current_edges = edge_dis(gen2);
@@ -440,28 +520,61 @@ UndirectedGraph<size_t> generate_undirected_graph(const size_t& number_of_vertic
 
             current_edges = number_of_edges - already_generated;
             already_generated = number_of_edges;
+
+            while (current_edges >= number_of_vertices) {
+                std::vector<bool> tmp_mask(number_of_vertices, false);
+
+                for (size_t i = 0; i < number_of_vertices; ++i) {
+                    if (result.gList[i].size() < number_of_vertices) {
+                        size_t decrement = number_of_vertices - result.gList[i].size();
+
+                        std::fill(tmp_mask.begin(), tmp_mask.end(), false);
+                        tmp_mask[i] = true;
+                        for (auto& it : result.gList[i])
+                            tmp_mask[it] = true;
+
+                        size_t tmp_counter = 0;
+                        while (tmp_counter != decrement) {
+                            size_t tmp_index = i;
+                            while (tmp_mask[i])
+                                tmp_index = vert_dis(gen1);
+
+                            ++tmp_counter;
+                            tmp_mask[tmp_index] = true;
+
+                            result.gList[tmp_index].emplace_back(i);
+                            result.gList[i].emplace_back(tmp_index);
+                        }
+
+                        current_edges -= decrement;
+                    }
+                }
+            }
         }
 
         vertices[current_index] = true;
 
         size_t initial_size = result.gList[current_index].size();
-        std::set<size_t> tmp;
+
+        size_t tmp_counter = 0;
+        std::fill(tmp.begin(), tmp.end(), false);
+        tmp[current_index] = true;
+
         if (initial_size) {
             for (const auto& it : result.gList[current_index])
-                tmp.insert(it);
+                tmp[it] = true;
         }
 
         std::vector<size_t> tmp_res;
         tmp_res.reserve(current_edges);
-        for (; tmp.size() < current_edges + initial_size;) {
-            size_t tmp_sz = tmp.size();
-            size_t tmp_index = 0;
-
-            while (tmp.size() == tmp_sz) {
+        while (tmp_counter != current_edges) {
+            size_t tmp_index = current_index;
+            while (tmp[tmp_index]) {
                 tmp_index = vert_dis(gen1);
-                if (tmp_index != current_index)
-                    tmp.insert(tmp_index);
             }
+
+            ++tmp_counter;
+            tmp[tmp_index] = true;
 
             tmp_res.emplace_back(tmp_index);
             result.gList[tmp_index].push_back(current_index);
