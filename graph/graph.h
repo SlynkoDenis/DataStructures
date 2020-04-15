@@ -16,14 +16,7 @@
 #include <stdexcept>
 #include <vector>
 
-template <typename T>
-std::ostream& operator <<(std::ostream& os, const std::vector<T>& v) {
-    for (const auto& it : v)
-        os << it << " ";
-    return os;
-}
-
-struct Node {
+struct Node final {
     size_t number;
     size_t weight;
 
@@ -62,12 +55,24 @@ struct Graph {
 
     Graph() : edges(0) {};
     explicit Graph(const size_t& sz) : gList(sz), edges(0) {};
+    Graph(const Graph<N>& other) = default;
+    Graph(Graph<N>&& other) noexcept : gList(std::move(other.gList)), edges(other.edges) {
+        other.edges = 0;
+    };
     virtual Graph& operator =(const Graph& other) = default;
+    virtual Graph& operator =(Graph&& other) noexcept {
+        gList = std::move(other.gList);
+        edges = other.edges;
+
+        other.edges = 0;
+
+        return *this;
+    };
 
     virtual void reserve(const size_t& cap) = 0;
-    [[nodiscard]] size_t number_of_verteces() const { return gList.size(); };
-    [[nodiscard]] size_t number_of_edges() const { return edges; };
-    [[nodiscard]] bool empty() const { return gList.empty(); };
+    [[nodiscard]] size_t number_of_verteces() const noexcept { return gList.size(); };
+    [[nodiscard]] size_t number_of_edges() const noexcept { return edges; };
+    [[nodiscard]] bool empty() const noexcept { return gList.empty(); };
 
     virtual void addNode(size_t number, N *begin, size_t sz) = 0;
 
@@ -81,20 +86,23 @@ struct Graph {
     auto end() {
         return gList.end();
     }
-    [[nodiscard]] auto begin() const {
+    [[nodiscard]] const auto begin() const {
         return gList.begin();
     }
-    [[nodiscard]] auto end() const {
+    [[nodiscard]] const auto end() const {
         return gList.end();
     }
-    std::vector<N>& operator [](const size_t& index) {
+    std::vector<N>& operator [](const size_t& index) & {
         return gList[index];
     }
-    const std::vector<N>& operator [](const size_t& index) const {
+    const std::vector<N>& operator [](const size_t& index) const & {
         return gList[index];
+    }
+    std::vector<N>&& operator [](const size_t& index) && {
+        return std::move(gList[index]);
     }
 
-    virtual ~Graph() = default;
+    virtual ~Graph() noexcept = default;
 };
 
 template <typename N>
@@ -103,15 +111,27 @@ struct DirectedGraph final : public Graph<N> {
 
     explicit DirectedGraph(size_t sz) : Graph<N>(sz), inDegrees(sz) {};
     DirectedGraph& operator =(const Graph<N>& other) override {
-        const DirectedGraph<N>& ref = static_cast<const DirectedGraph<N>&>(other);
-        this->gList = ref.gList;
-        this->edges = ref.edges;
+        if (this == &other)
+            return *this;
+
+        Graph<N>::operator=(other);
+        const auto& ref = static_cast<const DirectedGraph<N>&>(other);
         inDegrees = ref.inDegrees;
 
         return *this;
     };
+    DirectedGraph& operator =(Graph<N>&& other) noexcept override {
+        if (this == &other)
+            return *this;
+
+        Graph<N>::operator=(other);
+        auto&& ref = static_cast<DirectedGraph<N>&&>(other);
+        inDegrees = std::move(ref.inDegrees);
+
+        return *this;
+    };
     void reserve(const size_t& cap) override {
-        this->gList.reserve(cap);
+        Graph<N>::gList.reserve(cap);
         inDegrees.reserve(cap);
     };
     void addNode(size_t number, N *begin, size_t sz) override;
@@ -130,17 +150,17 @@ template <typename INIt> void DirectedGraph<N>::addNode(size_t number, INIt begi
     if (sz == 1)
         return;
 
-    if (number < this->number_of_verteces()) {
+    if (number < Graph<N>::number_of_verteces()) {
         inDegrees[number] += sz;
 
-        auto& iter = this->gList[number];
+        auto& iter = Graph<N>::gList[number];
         for (auto& it = begin; it != end; it = std::next(it)) {
             ++inDegrees[static_cast<size_t>(*it)];
             iter.push_back(*it);
         }
 
-        this->edges += sz;
-    } else if (number == this->number_of_verteces()) {
+        Graph<N>::edges += sz;
+    } else if (number == Graph<N>::number_of_verteces()) {
         std::vector<N> tmp;
         tmp.reserve(sz);
 
@@ -150,8 +170,8 @@ template <typename INIt> void DirectedGraph<N>::addNode(size_t number, INIt begi
         }
 
         inDegrees.push_back(sz);
-        this->gList.push_back(std::move(tmp));
-        this->edges += sz;
+        Graph<N>::gList.push_back(std::move(tmp));
+        Graph<N>::edges += sz;
     } else
         throw std::invalid_argument("vertex to add");
 }
@@ -161,17 +181,17 @@ void DirectedGraph<N>::addNode(size_t number, N *begin, size_t sz) {
     if (!begin)
         throw std::invalid_argument("list of nodes");
 
-    if (number < this->number_of_verteces()) {
+    if (number < Graph<N>::number_of_verteces()) {
         inDegrees[number] += sz;
 
-        auto& iter = this->gList[number];
+        auto& iter = Graph<N>::gList[number];
         for (size_t i = 0; i < sz; ++i) {
             ++inDegrees[static_cast<size_t>(*(begin + i))];
             iter.push_back(*(begin + i));
         }
 
-        this->edges += sz;
-    } else if (number == this->number_of_verteces()) {
+        Graph<N>::edges += sz;
+    } else if (number == Graph<N>::number_of_verteces()) {
         std::vector<N> tmp;
         tmp.reserve(sz);
 
@@ -181,15 +201,15 @@ void DirectedGraph<N>::addNode(size_t number, N *begin, size_t sz) {
         }
 
         inDegrees.push_back(sz);
-        this->gList.push_back(std::move(tmp));
-        this->edges += sz;
+        Graph<N>::gList.push_back(std::move(tmp));
+        Graph<N>::edges += sz;
     } else
         throw std::invalid_argument("vertex to add");
 }
 
 template <typename N>
 void DirectedGraph<N>::remove_edge(size_t first, const N& last) {
-    if (first >= this->number_of_verteces() || last >= this->number_of_verteces())      // N type must implement comparison with size_t type
+    if (first >= Graph<N>::number_of_verteces() || last >= Graph<N>::number_of_verteces())      // N type must implement comparison with size_t type
         throw std::invalid_argument("invalid vertices");
 
     auto& list = this->gList[first];
@@ -197,35 +217,34 @@ void DirectedGraph<N>::remove_edge(size_t first, const N& last) {
     if (node != list.end()) {
         list.erase(node);
         --inDegrees[static_cast<size_t>(last)];
-        --this->edges;
+        --Graph<N>::edges;
     }
 }
 
 template <typename N>
 void DirectedGraph<N>::remove_edge(size_t first) {
-    if (first >= this->number_of_verteces())
+    if (first >= Graph<N>::number_of_verteces())
         throw std::invalid_argument("invalid vertex");
 
-    for (const auto& it : this->gList[first]) {
+    for (const auto& it : Graph<N>::gList[first]) {
         --inDegrees[static_cast<size_t>(it)];
     }
 
-    auto& list = this->gList[first];
-    this->edges -= list.size();
+    auto& list = Graph<N>::gList[first];
+    Graph<N>::edges -= list.size();
     list.clear();
 }
 
 template <typename N>
 struct UndirectedGraph final : public Graph<N> {
     explicit UndirectedGraph(const size_t& sz) : Graph<N>(sz) {};
-    UndirectedGraph& operator =(const Graph<N>& other) override {
-        const UndirectedGraph<N>& ref = static_cast<const UndirectedGraph<N>&>(other);
-        this->gList = ref.gList;
-        this->edges = ref.edges;
+    UndirectedGraph(UndirectedGraph&& other) noexcept : Graph<N>(std::move(other)) {};
+    UndirectedGraph& operator =(Graph<N>&& other) noexcept override {
+        Graph<N>::operator=(std::move(other));
 
         return *this;
-    };
-    void reserve(const size_t& cap) override { this->gList.reserve(cap); };
+    }
+    void reserve(const size_t& cap) override { Graph<N>::gList.reserve(cap); };
     template <typename INIt> void addNode(size_t number, INIt begin, INIt end);
     void addNode(size_t number, N *begin, size_t sz) override;
     void remove_edge(size_t first, const N& last) override;
@@ -242,25 +261,25 @@ template <typename INIt> void UndirectedGraph<N>::addNode(size_t number, INIt be
     if (sz == 1)
         return;
 
-    if (number < this->number_of_verteces()) {
-        auto& iter = this->gList[number];
+    if (number < Graph<N>::number_of_verteces()) {
+        auto& iter = Graph<N>::gList[number];
         for (auto& it = begin; it != end; it = std::next(it)) {
             iter.push_back(*it);
-            this->gList[static_cast<size_t>(*it)].push_back(static_cast<N>(number));
+            Graph<N>::gList[static_cast<size_t>(*it)].push_back(static_cast<N>(number));
         }
 
-        this->edges += sz;
-    } else if (number == this->number_of_verteces()) {
+        Graph<N>::edges += sz;
+    } else if (number == Graph<N>::number_of_verteces()) {
         std::vector<N> tmp;
         tmp.reserve(sz);
 
         for (auto& it = begin; it != end; it = std::next(it)) {
             tmp.push_back(*it);
-            this->gList[static_cast<size_t>(*it)].push_back(static_cast<N>(number));
+            Graph<N>::gList[static_cast<size_t>(*it)].push_back(static_cast<N>(number));
         }
 
-        this->gList.emplace_back(std::move(tmp));
-        this->edges += sz;
+        Graph<N>::gList.emplace_back(std::move(tmp));
+        Graph<N>::edges += sz;
     } else
         throw std::invalid_argument("vertex to add");
 }
@@ -270,41 +289,41 @@ void UndirectedGraph<N>::addNode(size_t number, N *begin, size_t sz) {
     if (!begin)
         throw std::invalid_argument("list of nodes");
 
-    if (number < this->number_of_verteces()) {
-        auto& iter = this->gList[number];
+    if (number < Graph<N>::number_of_verteces()) {
+        auto& iter = Graph<N>::gList[number];
         for (size_t i = 0; i < sz; ++i) {
             iter.push_back(*(begin + i));
-            this->gList[static_cast<size_t>(*(begin + i))].push_back(static_cast<N>(number));
+            Graph<N>::gList[static_cast<size_t>(*(begin + i))].push_back(static_cast<N>(number));
         }
 
-        this->edges += sz;
-    } else if (number == this->number_of_verteces()) {
+        Graph<N>::edges += sz;
+    } else if (number == Graph<N>::number_of_verteces()) {
         std::vector<N> tmp;
         tmp.reserve(sz);
 
         for (size_t i = 0; i < sz; ++i) {
             tmp.push_back(*(begin + i));
-            this->gList[static_cast<size_t>(*(begin + i))].push_back(static_cast<N>(number));
+            Graph<N>::gList[static_cast<size_t>(*(begin + i))].push_back(static_cast<N>(number));
         }
 
-        this->gList.emplace_back(std::move(tmp));
-        this->edges += sz;
+        Graph<N>::gList.emplace_back(std::move(tmp));
+        Graph<N>::edges += sz;
     } else
         throw std::invalid_argument("vertex to add");
 }
 
 template <typename N>
 void UndirectedGraph<N>::remove_edge(size_t first, const N& last) {
-    if (first >= this->number_of_verteces() || last >= this->number_of_verteces())      // N type must implement comparison with size_t type
+    if (first >= Graph<N>::number_of_verteces() || last >= Graph<N>::number_of_verteces())      // N type must implement comparison with size_t type
         throw std::invalid_argument("invalid vertices");
 
-    auto& list = this->gList[first];
+    auto& list = Graph<N>::gList[first];
     auto node = std::find(list.begin(), list.end(), last);
 
     if (node != list.end())
         list.erase(node);
 
-    auto& last_list = this->gList[static_cast<size_t>(last)];
+    auto& last_list = Graph<N>::gList[static_cast<size_t>(last)];
     node = std::find_if(last_list.begin(), last_list.end(), [first](const N& other) {
         return first == other;
     });
@@ -316,19 +335,19 @@ void UndirectedGraph<N>::remove_edge(size_t first, const N& last) {
 
 template <typename N>
 void UndirectedGraph<N>::remove_edge(size_t first) {
-    if (first >= this->number_of_verteces())
+    if (first >= Graph<N>::number_of_verteces())
         throw std::invalid_argument("invalid vertex");
 
-    auto& list = this->gList[first];
+    auto& list = Graph<N>::gList[first];
     for (size_t i = 0, end_ = list.size(); i < end_; ++i) {
-        auto& tmp = this->gList[static_cast<size_t>(list[i])];
+        auto& tmp = Graph<N>::gList[static_cast<size_t>(list[i])];
         auto iter = std::find_if(tmp.begin(), tmp.end(), [first](const N& other) {
             return first == other;
         });
         tmp.erase(iter);
     }
 
-    this->edges -= list.size();
+    Graph<N>::edges -= list.size();
     list.clear();
 }
 
@@ -340,6 +359,13 @@ namespace {
         else
             return number_of_vertices / 2;
     }
+}
+
+template <typename T>
+std::ostream& operator <<(std::ostream& os, const std::vector<T>& v) {
+    for (const auto& it : v)
+        os << it << " ";
+    return os;
 }
 
 template <typename N>
